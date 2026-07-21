@@ -1,0 +1,14 @@
+names:
+- 10_PKR
+- 100_PKR
+- 1000_PKR
+- 20_PKR
+- 50_PKR
+- 500_PKR
+- 5000_PKR
+nc: 7
+path: /kaggle/input/datasets/muhammadasjadali/pakistani-currency-notes/Pakistani Currency
+  Notes Dataset.v1-2kbase.yolov11
+test: test/images
+train: train/images
+val: valid/images
