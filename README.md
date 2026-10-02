@@ -29,10 +29,13 @@ The model is trained to identify standard Pakistani Rupee currency notes:
 ```text
 PKR-detection-yolov11n/
 │
-├── my_trained_model/         # Trained weights (.pt / export formats)
-│   └── weights/
-│       ├── best.pt            # Best performing model checkpoint
-│       └── last.pt            # Latest epoch checkpoint
+├── my_trained_model/
+│   └── runs/pk_currency_yolo11n/
+│       ├── weights/
+│       │   ├── best.pt              # Best checkpoint (100 epochs, imgsz 416, mAP50 0.978)
+│       │   ├── best_float16.tflite  # Mobile export (see "Mobile Model")
+│       │   └── best.mlpackage       # Core ML export
+│       └── results.csv, *.png       # Training curves and validation samples
 ├── dataset/                  # Dataset directory (images & labels)
 │   ├── train/
 │   ├── val/
@@ -74,7 +77,7 @@ from ultralytics import YOLO
 import cv2
 
 # Load your custom trained YOLOv11 model
-model = YOLO('my_trained_model/weights/best.pt')
+model = YOLO('my_trained_model/runs/pk_currency_yolo11n/weights/best.pt')
 
 # Run inference on an image or video source (0 for webcam)
 results = model.predict(source='path/to/currency_image.jpg', conf=0.5, show=True)
@@ -95,10 +98,10 @@ cv2.destroyAllWindows()
 
 ```bash
 # Run prediction on an image
-yolo task=detect mode=predict model=my_trained_model/weights/best.pt source='path/to/image.jpg' conf=0.5
+yolo task=detect mode=predict model=my_trained_model/runs/pk_currency_yolo11n/weights/best.pt source='path/to/image.jpg' conf=0.5
 
 # Run real-time detection on webcam
-yolo task=detect mode=predict model=my_trained_model/weights/best.pt source=0 conf=0.5
+yolo task=detect mode=predict model=my_trained_model/runs/pk_currency_yolo11n/weights/best.pt source=0 conf=0.5
 ```
 
 ---
@@ -114,7 +117,7 @@ If you wish to retrain or fine-tune the model on a custom dataset:
    val: val/images
 
    nc: 7
-   names: ['10_PKR', '20_PKR', '50_PKR', '100_PKR', '500_PKR', '1000_PKR', '5000_PKR']
+   names: ['10_PKR', '100_PKR', '1000_PKR', '20_PKR', '50_PKR', '500_PKR', '5000_PKR']
    ```
 
 2. Start training:
@@ -124,21 +127,41 @@ If you wish to retrain or fine-tune the model on a custom dataset:
 
 ---
 
-##  Exporting for Mobile & Edge Devices
+##  Mobile Model (TFLite)
 
-To integrate this model into Android (Flutter / Kotlin), iOS, or ONNX runtimes:
+A ready-to-use TensorFlow Lite export is included:
+`my_trained_model/runs/pk_currency_yolo11n/weights/best_float16.tflite` (5.3 MB, float16 weights).
+Its detections were checked against `best.pt` and match.
 
-```python
-from ultralytics import YOLO
+| | |
+|---|---|
+| Input | `1 x 416 x 416 x 3`, float32, RGB scaled to 0..1, letterboxed with gray (114) padding |
+| Output | `1 x 11 x 3549`, float32: rows 0-3 are `cx, cy, w, h` in input pixels, rows 4-10 are class scores |
+| Post-processing | keep anchors whose best score is above ~0.5, then class-agnostic NMS (IoU 0.45) |
 
-model = YOLO('my_trained_model/weights/best.pt')
+**Class order matters.** The checkpoint stores classes alphabetically, not by value:
 
-# Export to ONNX format
-model.export(format='onnx')
-
-# Export to TensorFlow Lite (TFLite) for mobile devices
-model.export(format='tflite')
 ```
+0: 10_PKR   1: 100_PKR   2: 1000_PKR   3: 20_PKR   4: 50_PKR   5: 500_PKR   6: 5000_PKR
+```
+
+This model is used by the Currency mode of the Vision Assist app
+(`asjad2401/voice-assisted-calling`, `lib/modules/currency_module.dart`).
+
+### Re-exporting
+
+Recent Ultralytics versions route `format='tflite'` through a LiteRT path that can fail
+(the previous `best_w8a32.tflite` export came out as a 0-byte file and was removed). Exporting via ONNX works:
+
+```bash
+pip install ultralytics onnx onnxslim onnx2tf tensorflow tf_keras onnx_graphsurgeon sng4onnx ai-edge-litert onnxruntime psutil
+yolo export model=my_trained_model/runs/pk_currency_yolo11n/weights/best.pt format=onnx imgsz=416 simplify=True opset=17
+onnx2tf -i my_trained_model/runs/pk_currency_yolo11n/weights/best.onnx -o tflite_out -nuo -osd
+# -> tflite_out/best_float16.tflite and best_float32.tflite
+```
+
+onnx2tf downloads a calibration sample from GitHub. If you are offline, save any
+`calibration_image_sample_data_20x128x128x3_float32.npy` array of shape (20,128,128,3) in the working directory.
 
 ---
 
